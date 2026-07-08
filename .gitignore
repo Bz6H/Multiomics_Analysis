@@ -1,0 +1,8 @@
+# Ignore everything by default
+*
+
+# ...except scripts and this file
+!.gitignore
+!*.R
+!*.sh
+!*.Rproj
