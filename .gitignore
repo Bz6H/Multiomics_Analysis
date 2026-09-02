@@ -1,8 +1,18 @@
 # Ignore everything by default
 *
 
-# ...except scripts and this file
+# ...except scripts and project files
 !.gitignore
 !*.R
 !*.sh
 !*.Rproj
+!README.md
+
+# Exclude utility/sync scripts (not analysis code)
+sync_to_rfs.sh
+sync_element_to_rfs.sh
+sync_log.txt
+sync_element_to_rfs_log.txt
+
+# RStudio user files
+.Rproj.user

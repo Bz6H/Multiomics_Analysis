@@ -4,47 +4,49 @@
 # Add Homer to PATH
 export PATH=/Users/yuzhihuang/Homer/bin:$PATH
 
-# Peak-to-gene-links file p2g.df.obs.sub needs to be in correct format (MS-DOS .txt.). 
-# FIRST - OPEN .csv file, delete first column and save as MS-DOS .txt
-# THEN - Run this in terminal to change format:
+# ── Settings ────────────────────────────────────────────────────────────────
+# All HOMER output stays INSIDE the project folder - nothing is written to the
+# home directory or other outer folders.
+PROJ=/Users/yuzhihuang/MultiomeAnalysis
+TF=TEAD1                              # transcription factor to scan
+MOTIF=                                # leave empty; path to the TF .motif file (set below)
+P2G=$PROJ/p2g.df.obs.sub.txt
 
-changeNewLine.pl /Users/yuzhihuang/MultiomeAnalysis/p2g.df.obs.sub.txt
+SITES_DIR=$PROJ/${TF}_predicted_sites # per-TF output dir, inside $PROJ
 
-#Create output folder for Homer results
-mkdir -p /Users/yuzhihuang/SOX17_predicted_sites
-    
-# Copy the local HOMER transcription factor motif file
-cp /Users/yuzhihuang/homer/data/knownTFs/motifs/mecom.motif \
-   /Users/yuzhihuang/SOX17_predicted_sites/SOX17.motif
+# Peak-to-gene-links file p2g.df.obs.sub needs to be in correct format (MS-DOS .txt).
+# FIRST - open the .csv, delete the first column, save as MS-DOS .txt
+# THEN  - fix line endings:
+changeNewLine.pl "$P2G"
 
-head /Users/yuzhihuang/SOX17_predicted_sites/SOX17.motif
-#Or download from JASPAR and convert to HOMER format using jaspar_homer_conversion.sh script
-cd /Users/yuzhihuang/SOX17_predicted_sites
+# Create output folder for HOMER results (inside the project)
+mkdir -p "$SITES_DIR"
 
-curl -L -o SOX17_MA0078.jaspar "https://jaspar.elixir.no/api/v1/matrix/MA0078.2.jaspar"
-
-head SOX17_MA0078.jaspar
-
-chmod +x /Users/yuzhihuang/MultiomeAnalysis/jaspar_homer_conversion.sh
-/Users/yuzhihuang/MultiomeAnalysis/jaspar_homer_conversion.sh \
-  /Users/yuzhihuang/SOX17_predicted_sites/SOX17_MA0078.jaspar \
-  /Users/yuzhihuang/SOX17_predicted_sites/SOX17.motif
-head SOX17.motif
+# Provide the motif file, written into $SITES_DIR. Either copy a local HOMER known motif:
+#   cp /Users/yuzhihuang/homer/data/knownTFs/motifs/${TF}.motif "$SITES_DIR/${TF}.motif"
+# or download from JASPAR and convert to HOMER format with jaspar_homer_conversion.sh:
+#   curl -L -o "$SITES_DIR/${TF}.jaspar" "https://jaspar.elixir.no/api/v1/matrix/MA0078.2.jaspar"
+#   chmod +x "$PROJ/jaspar_homer_conversion.sh"
+#   "$PROJ/jaspar_homer_conversion.sh" "$SITES_DIR/${TF}.jaspar" "$SITES_DIR/${TF}.motif"
+MOTIF=${MOTIF:-$SITES_DIR/${TF}.motif}
+head "$MOTIF"
 # Verify it looks correct
 
-# Now search Peak-to-gene-links for instances of TF motifs (make sure TF.motif file is in output_folder)
-cd /Users/yuzhihuang/SOX17_predicted_sites
+# Now search peak-to-gene-links for instances of the TF motif.
+# HOMER writes its preparsed/ tmp files into the -o directory, so run from $SITES_DIR.
+cd "$SITES_DIR"
 findMotifsGenome.pl \
-    /Users/yuzhihuang/MultiomeAnalysis/p2g.df.obs.sub.txt \
+    "$P2G" \
     hg38 \
-    /Users/yuzhihuang/SOX17_predicted_sites \
-    -find /Users/yuzhihuang/SOX17_predicted_sites/SOX17.motif \
+    "$SITES_DIR" \
+    -find "$MOTIF" \
     -size given \
     -mask \
-    > /Users/yuzhihuang/SOX17_predicted_sites/SOX17.txt
- 
-echo "HOMER complete. Output: /Users/yuzhihuang/SOX17_predicted_sites/SOX17.txt"
+    > "$SITES_DIR/${TF}.txt"
 
-# This generates a table of peaks containing overrepresentations of transcription factor motifs annonated by a corresponding PositionID
+echo "HOMER complete. Output: $SITES_DIR/${TF}.txt"
 
-#MOVE ANALYSIS TO R TO JOIN WITH GENE NAMES
+# This generates a table of peaks containing over-represented TF motifs, annotated
+# by a corresponding PositionID.
+
+# MOVE ANALYSIS TO R TO JOIN WITH GENE NAMES (Coregulon_combined.R, Part 2)

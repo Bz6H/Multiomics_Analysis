@@ -77,14 +77,14 @@ p2g.df.obs.sub <- read.delim(
 cat("Total significant peak-gene links:", nrow(p2g.df.obs.sub), "\n")
 
 ##Combine all Homer output peak files into 1 list (called myfiles) - useful if analysing more than one motif
-setwd("/Users/yuzhihuang/HNF1B_predicted_sites")
+setwd("/Users/yuzhihuang/TEAD1_predicted_sites")
 
 homer_out <- list.files(pattern = "*.txt") %>%
   lapply(read.delim) %>%
   bind_rows()
 
 cat("Total HOMER motif hits:", nrow(homer_out), "\n")
-cat("Unique peaks with HNF1B motif:", length(unique(homer_out$PositionID)), "\n")
+cat("Unique peaks with interested motif:", length(unique(homer_out$PositionID)), "\n")
 
 
 ## ── 3. Merge HOMER hits with p2g links by PositionID ─────────────────────────
@@ -120,7 +120,7 @@ table(links$peakType)
 ## ── 6. Save ───────────────────────────────────────────────────────────────────
 write.csv(
   links,
-  file      = "/Users/yuzhihuang/HNF1B_predicted_sites/Predicted_HNF1B_regulon.csv",
+  file      = "/Users/yuzhihuang/TEAD1_predicted_sites/Predicted_TEAD1_regulon.csv",
   row.names = FALSE
 )
 
@@ -481,13 +481,13 @@ go_res <- enrichGO(
   readable = TRUE
 )
 
-go_res_simple <- simplify(go_res, cutoff = 0.7)
+go_res_simple <- simplify(go_res, cutoff = 0.8)
 
 library(enrichplot)
 go_res_simple <- pairwise_termsim(go_res_simple)
 emapplot(
   go_res_simple, 
-  showCategory = 15,
+  showCategory = 20,
   size_category = 1.5,
   node_label_size = 4,
   nCluster = 3,

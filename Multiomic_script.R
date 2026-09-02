@@ -309,7 +309,7 @@ saveArchRProject(ArchRProj = proj_sub, outputDirectory = "/Users/yuzhihuang/Mult
 ######################GENE EXPRESSION ON UMAP#####################
 ##################################################################
 # --- Check marker gene expression on UMAP to guide annotation ---
-install.packages("hexbin")
+# install.packages("hexbin")  # one-time setup
 # Replace with markers appropriate for your biological system
 marker_genes <- c('CDH6','WT1','JAG1','HNF1B','CDH1','PAX8','LAMC1')
 
@@ -938,3 +938,4 @@ combined <- plot_grid(
 
 combined
 ################################################################################
+sessionInfo()

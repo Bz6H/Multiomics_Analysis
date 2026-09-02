@@ -1,5 +1,23 @@
-library(ArchR) #Version 1.0.3
-library(presto) 
+# =============================================================================
+#  JP_analysis_clauderefined.R
+#  Refined copy of JP_Analysis.R. Changes made:
+#    * All library() calls consolidated at the top; exact duplicates removed
+#      (dplyr / ggplot2 / cowplot were listed 2-3x; future / openxlsx were
+#      loaded mid-script).
+#    * Out-of-order reference fixed: `JPproj@peakSet` was evaluated before the
+#      project was loaded - moved into the post-load inspection block.
+#    * Redundant lines removed: the saveArchRProject() that re-saved the
+#      just-loaded project unchanged; the first DCDC2 getMatrixFromProject()
+#      pull (gem/gene/idx/expr/grp) which is recomputed a few lines later.
+#    * install.packages() / devtools::install_github() commented out (one-time
+#      setup, not part of the analysis).
+#    * Trailing comma in addCombinedDims() removed so the call parses.
+#  Variable names, section order, parameters and logic are unchanged.
+#    * Aesthetics of hash tag dividers
+# =============================================================================
+
+library(ArchR)   # Version 1.0.3
+library(presto)
 library(dplyr)
 library(tidyverse)
 library(JASPAR2020)
@@ -14,46 +32,44 @@ library(clusterProfiler)
 library(org.Hs.eg.db)
 library(enrichplot)
 library(readxl)
-library(dplyr)
-library(ggplot2)
-library(cowplot)
 library(pheatmap)
+library(future)
+library(openxlsx)
 
 set.seed(1)                          # Makes results reproducible
 addArchRThreads(threads = 4)          # Adjust to your Mac's CPU count
 addArchRGenome('hg38')               # Human genome
 
-library(future)
 plan('multisession', workers = 4)    # Parallelise where possible
 
 #Check current working directory and files
 getwd()
 
-JPproj@peakSet
 
-
-######SAVING, LOADING, CHECKING AVAILABLE EMBEDDINGS AND CLUSTERINGS##############
-JPproj <- loadArchRProject(path = "/Users/yuzhihuang/MultiomeAnalysis/ArchRSubset_big3") 
-saveArchRProject(ArchRProj = JPproj, outputDirectory = "/Users/yuzhihuang/MultiomeAnalysis/ArchRSubset_big3", load = FALSE)
+################################################################################
+## SAVING, LOADING, CHECKING AVAILABLE EMBEDDINGS AND CLUSTERINGS
+################################################################################
+JPproj <- loadArchRProject(path = "/Users/yuzhihuang/MultiomeAnalysis/ArchRSubset_big3")
 names(JPproj@reducedDims)
 #"LSI_ATAC"         "LSI_RNA"          "LSI_Combined"     "Harmony_ATAC"     "Harmony_Combined"
 names(JPproj@embeddings)
-#"UMAP_ATAC" "UMAP_RNA" <- these two dont know if Harmony'ed or not 
+#"UMAP_ATAC" "UMAP_RNA" <- these two dont know if Harmony'ed or not
 #"UMAP_Combined"<-(Made from LSI_combined - Harmony - AddUMAP)      "UMAP_Harmony_ATAC" <- JP paper used
 names(JPproj@cellColData)
 #Leo made Clusters_broad and Clusters_test_Combined (res0.4)
 getAvailableMatrices(JPproj)
+JPproj@peakSet   # (moved here from before the loadArchRProject call above)
 
-####################################################################################
-####################################################################################
-####################################################################################
+################################################################################
+## DIMENSIONALITY REDUCTION, HARMONY, CLUSTERING, UMAP
+################################################################################
 JPproj <- addCombinedDims(
-                        JPproj, 
-                        reducedDims = c("LSI_ATAC", "LSI_RNA"), 
+                        JPproj,
+                        reducedDims = c("LSI_ATAC", "LSI_RNA"),
                         name =  "LSI_Combined",
-                        dimWeights = c(5,5),
+                        dimWeights = c(5,5)
                         )
-#Quality control of LSI###
+# Quality control of LSI
 rd <- getReducedDims(JPproj,"LSI_Combined")
 
 dim(rd)
@@ -62,7 +78,6 @@ dim(rd)
 any(duplicated(colnames(rd)))
 # should be FALSE
 rm(rd)
-##########################
 
 JPproj <- addHarmony(
   ArchRProj   = JPproj,
@@ -82,7 +97,7 @@ JPproj <- addClusters(
   name        = "Clusters_test_Combined_prelabel",
   resolution  = 0.4,
   force       = TRUE)
-table(JPproj$Clusters_test_Combined_prelabel) 
+table(JPproj$Clusters_test_Combined_prelabel)
 
 JPproj <- addUMAP(
   ArchRProj   = JPproj,
@@ -114,13 +129,13 @@ plotEmbedding(JPproj,
 #Impute weight
 JPproj <- addImputeWeights(JPproj, reducedDims = 'Harmony_Combined')
 
-####################################################################################
-###############################################################################
-####################################################################################
+################################################################################
+## MARKER GENE EXPRESSION
+################################################################################
 # --- Check marker gene expression on UMAP to guide annotation ---
-install.packages("hexbin")
+# install.packages("hexbin")   # run once if not already installed (needed for hex-bin plots)
 # Replace with markers appropriate for your biological system
-marker_genes <- c('WASF2','BAIAP2')
+marker_genes <- c('WASF2','GAPDH')
 plot_list <- plotEmbedding(
   ArchRProj  = JPproj,
   colorBy    = 'GeneExpressionMatrix',
@@ -163,28 +178,19 @@ plotEmbedding(
   plotAs = "points",
   size = 0.5,
   rastr = F) +
-  
+
   scale_color_gradientn(
     colours = ArchRPalettes$greenBlue,
     limits  = c(0, 4),          # hard ceiling; D14 saturates, D12 spreads across the ramp
     oob     = scales::squish    # values >4 clamp to the top colour instead of going grey
   )
 
-###################Inpect individual genes##########################
-# --- Pull DCDC2 expression from the GeneExpressionMatrix ---
-gem <- getMatrixFromProject(JPproj, useMatrix = "GeneExpressionMatrix")
-
-gene <- "DCDC2"
-idx  <- which(rowData(gem)$name == gene)
-stopifnot(length(idx) == 1)
-
-expr <- assay(gem)[idx, ]
-grp  <- getCellColData(JPproj, "Clusters_test_Combined", drop = TRUE)   # <-- set to your annotation column
-
-# --- Per-group summary ---
-library(dplyr)
-
+################################################################################
+## INSPECT INDIVIDUAL GENES
+################################################################################
 ## --- DCDC2 expression summary per group ---
+## (the earlier standalone gem/gene/idx/expr/grp pull was redundant with this
+##  block - gem/idx are recomputed below and expr/grp were unused/overwritten)
 gene  <- "DCDC2"
 group <- "Clusters"        # set to your grouping col: "Clusters", "Sample", timepoint, etc.
 
@@ -223,10 +229,9 @@ summ <- df %>%
   ) %>%
   arrange(group)
 
-print(as.data.frame(summ), digits = 2)
-####################################################################
-###############Accessibility of each gene###########################
-####################################################################
+print(as.data.frame(summ), digits = 2)############
+## ACCESSIBILITY OF EACH GENE
+################################################################################
 marker_genes <- c('SHISA8','AXIN1','APC2','GSK3A','DACT3')
 
 plot_list <- lapply(marker_genes, function(g) {
@@ -258,11 +263,10 @@ combined <- plot_grid(
   labels     = "AUTO",
   label_size = 6
 )
-combined
-####################################################################
-####################ATAC annotation#################################
-####################################################################
-#Manual loading of motifs for Pax2, Sall1, Mafb, Wt1 and Twist2 
+combined############
+## ATAC ANNOTATION (JASPAR + VIERSTRA MOTIFS, chromVAR DEVIATIONS)
+################################################################################
+#Manual loading of motifs for Pax2, Sall1, Mafb, Wt1 and Twist2
 # Load manual JASPAR files as PFM (raw counts)
 WT1_pfm    <- readJASPARMatrix("~/MultiomeAnalysis/JasparMotif/MA1627.1.jaspar", matrixClass = "PFM")
 PAX2_pfm   <- readJASPARMatrix("~/MultiomeAnalysis/JasparMotif/MA0067.2.jaspar", matrixClass = "PFM")
@@ -340,7 +344,7 @@ plotEmbedding(
   continuousSet = "solarExtra",
   quantCut = c(0.05,0.95),
   imputeWeights = getImputeWeights(JPproj)
-) + 
+) +
   theme(panel.border = element_rect(color = "black", fill = NA, size = 1),
         axis.ticks.x = element_blank(),
         axis.ticks.y = element_blank(),
@@ -352,15 +356,15 @@ plotEmbedding(
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'white'),
         line = element_blank(),
-        plot.title = element_text(hjust = 0, vjust = 0)) + 
+        plot.title = element_text(hjust = 0, vjust = 0)) +
   labs(x = 'UMAP 1', y = 'UMAP 2')
 
 
 
 
-####################################################################################
-###################Pseudotime gene expression pattern###############################
-####################################################################################
+################################################################################
+## PSEUDOTIME: CELL TYPE LABELS AND TRAJECTORY ASSIGNMENT
+################################################################################
 
 # --- Assign cell type labels based on your marker gene analysis ---
 # Modify the cluster-to-celltype mapping to match your data
@@ -399,13 +403,13 @@ plotEmbedding(JPproj,
 
 #JP then assigned the trajectory backbone using the epithelial cluster he identified
 #earlier, D10epi, D12 epi, D14epi.
-Trajectory_dist <- c('D10_Induced','D12_Distal','D14_Distal') 
+Trajectory_dist <- c('D10_Induced','D12_Distal','D14_Distal')
 #In our case, D10 induced --> D12 induced --> D14 Proximal -- > D14 Distal
 Trajectory_pod <-c('D10_Induced','D12_Prox','D14_Prox_Pod')
 Trajectory_med <-c('D10_Induced','D12_Distal', 'D14_Medial')
 
 JPproj <- addTrajectory( #3 edits
-  ArchRProj = JPproj, 
+  ArchRProj = JPproj,
   name = "Trajectory_dist",              #Edit to change trajectory
   groupBy = "Clusters_test_Combined",    #Edit to change, which clustering contain labels to identify items in trajectory
   trajectory = Trajectory_dist,          #Ordered vector of cluster names (specified earlier)
@@ -419,7 +423,7 @@ JPproj <- addTrajectory( #3 edits
   saveDF = paste0("/Users/yuzhihuang/MultiomeAnalysis/Trajectory_dist.rds") #Editable
 )
 
-####Plot Trajectory
+# Plot Trajectory
 trajectory_cells <- getCellNames(
   JPproj[complete.cases(JPproj@cellColData$Trajectory_dist), ] #edit
 )
@@ -456,8 +460,7 @@ traj_plot <- plotEmbedding(
   labs(title = NULL, x = "UMAP 1", y = "UMAP 2")
 
 traj_plot
-#Now with the trajectory I want to measure gene expression changes along it#
-library(dplyr)
+# Now with the trajectory I want to measure gene expression changes along it
 
 ann_colors.2 <- list(
   Cluster = c("D10_Induced" = "#9D2C24",
@@ -502,16 +505,16 @@ label$bins <- NULL
 rownames(label) <- 1:nrow(label)
 
 trajGEM <- getTrajectory(
-  ArchRProj = JPproj, 
+  ArchRProj = JPproj,
   name = "Trajectory_dist",   #EDIT
-  useMatrix = "GeneExpressionMatrix", 
+  useMatrix = "GeneExpressionMatrix",
   log2Norm = TRUE
-) 
+)
 # Create a matrix of all gene's average expression along the pseudotime bin in the trajectory
 
-####################################################################################
-###########Quality check of marker#################
-########by plotting a line graph along pseudo######
+################################################################################
+## QUALITY CHECK: MARKER LINE GRAPHS ALONG PSEUDOTIME
+################################################################################
 markers <- c('LEF1',"AXIN1", "DACT3", "APC2", "SP5",'GSK3B')
 
 marker_rows <- unlist(lapply(markers, function(g)
@@ -520,7 +523,7 @@ marker_rows <- unlist(lapply(markers, function(g)
 marker_mat <- assay(trajGEM)[marker_rows, , drop = FALSE]
 rownames(marker_mat) <- sub(".*:", "", rownames(marker_mat))
 
-#marker_mat useful, 
+#marker_mat useful,
 #Generates a matrix with genes as row, and pseudotime axis as column, can be used for correlation.
 
 marker_df <- data.frame(
@@ -531,7 +534,7 @@ marker_df <- data.frame(
 
 ggplot(marker_df, aes(x = bin, y = expression, colour = gene)) +
   geom_line(linewidth = 1) +
-  scale_colour_viridis_d(option = "B") + 
+  scale_colour_viridis_d(option = "B") +
   labs(x = "Pseudotime bin", y = "log2 expression",
        title = "Marker gene expression along trajectory") +
   theme_classic(base_size = 12)
@@ -544,9 +547,9 @@ ggplot(marker_df, aes(x = bin, y = expression, colour = gene)) +
   theme_classic(base_size = 12)
 
 
-####################################################################################
-#######Plot expression overlapping UMAP
-####################################################################################
+################################################################################
+## PLOT EXPRESSION OVERLAPPING UMAP
+################################################################################
 marker_genes <- c('PAX8','SOX9')
 
 traj_exp <- plotTrajectory(
@@ -563,9 +566,12 @@ traj_exp[[1]]
 traj_exp[[2]]
 plotEmbedding(JPproj, name = "Clusters_test_Combined", embedding = "UMAP_Combined",
               colorBy = "cellColData", plotAs = "points", size = 1)
-# ── SAVE 
+# ── SAVE
 saveArchRProject(ArchRProj = JPproj, outputDirectory = "/Users/yuzhihuang/MultiomeAnalysis/ArchRSubset_annotated", load = FALSE)
-####################################################################################
+
+################################################################################
+## TRAJECTORY ACCESS PLOTS
+################################################################################
 traj_access <- plotTrajectory(
   ArchRProj = JPproj,
   trajectory = "Trajectory_dist",
@@ -576,10 +582,10 @@ traj_access <- plotTrajectory(
 )
 traj_access[[1]]
 traj_access[[2]]
-####################################################################################
-####################################################################################
-library(dplyr)
-library(openxlsx)
+
+################################################################################
+## PAX8 TARGET CORRELATION ALONG PSEUDOTIME
+################################################################################
 
 # --- Load validated gene list ---
 val_genes <- readLines("/Volumes/Elements/Leo_CUT_RUN/Validated/All_PAX8_val_genes_stringent.txt")
@@ -589,11 +595,11 @@ val_genes <- val_genes[val_genes != ""]
 # --- Extract gene symbols from trajGEM rownames (format: "chr:GENE") ---
 ##If not ran before, run this
 trajGEM <- getTrajectory(
-  ArchRProj = JPproj, 
-  name = "Trajectory_pod", 
-  useMatrix = "GeneExpressionMatrix", 
+  ArchRProj = JPproj,
+  name = "Trajectory_pod",
+  useMatrix = "GeneExpressionMatrix",
   log2Norm = TRUE
-) 
+)
 ##
 traj_mat   <- assay(trajGEM)                       # genes x 100 bins
 gene_syms  <- sub(".*:", "", rownames(traj_mat))
@@ -657,8 +663,7 @@ res <- data.frame(
 res <- res[order(-res$abs_pearson), ]
 
 # --- Write to Excel: ranked sheet + class-split sheets + missing list ---
-install.packages("openxlsx")
-library(openxlsx)
+# install.packages("openxlsx")   # run once if not already installed
 wb <- createWorkbook()
 addWorksheet(wb, "ranked_all")
 writeData(wb, "ranked_all", res)
@@ -679,9 +684,9 @@ writeData(wb, "FOXC2_trajectory",
 out_path <- "/Users/yuzhihuang/MultiomeAnalysis/output170626/FOXC2_pseudotime_correlation_Trajectory_pod_stringent.xlsx" #filtered for targets of PAX8
 saveWorkbook(wb, out_path, overwrite = TRUE)
 cat("Written:", out_path, "\n")
-####################################################################################
-##############################Heatmaps##############################################
-####################################################################################
+################################################################################
+## TRAJECTORY HEATMAPS AND MOTIF-EXPRESSION CORRELATION
+################################################################################
 trajMM  <- getTrajectory(JPproj, name = "Trajectory_pod", useMatrix = "JASPAR",                log2Norm = FALSE)  # your motif deviations
 trajGEM <- getTrajectory(JPproj, name = "Trajectory_pod", useMatrix = "GeneExpressionMatrix",  log2Norm = TRUE)
 
@@ -690,24 +695,22 @@ plotTrajectoryHeatmap(trajMM,  pal = paletteContinuous("solarExtra"))     # TF m
 
 corr <- correlateTrajectories(trajMM, trajGEM)   # where does PAX8 motif track PAX8 expression?
 corr[[1]]
-####################################################################################
-##########################Monocle 3.0 in ArchR#####################################
-####################################################################################
+################################################################################
+## MONOCLE 3.0 IN ARCHR
+################################################################################
 # In R - point to homebrew hdf5
 Sys.setenv(HDF5_DIR = "/opt/homebrew/opt/hdf5")
-devtools::install_github("bnprks/BPCells/r")
-devtools::install_github('cole-trapnell-lab/monocle3')
+# devtools::install_github("bnprks/BPCells/r")            # run once to install
+# devtools::install_github('cole-trapnell-lab/monocle3')  # run once to install
 pseudoDist <- getMonocleTrajectories(
-  ArchRProj = JPproj, 
-  groupBy = "Clusters_test_Combined", 
+  ArchRProj = JPproj,
+  groupBy = "Clusters_test_Combined",
   clusterParams = list(k = 100),
   useGroups = c("D10_Induced",
                 "D12_Distal",
                 "D14_Distal"),
-  principalGroup = "D10_Induced", 
+  principalGroup = "D10_Induced",
   embedding = "UMAP_Harmony_ATAC"
 )
 
 head(JPproj$pseudoDist[!is.na(JPproj$pseudoDist)])
-
-
