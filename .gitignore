@@ -1,14 +1,29 @@
 # Ignore everything by default
 *
 
-# ...except scripts and project files
+# ...except the 7 essential scripts and project files
 !.gitignore
-!*.R
-!*.sh
-!*.Rproj
 !README.md
+!Multiomic_script.R
+!JP_analysis_clauderefined.R
+!Coregulon_combined.R
+!Motif_finding.sh
+!jaspar_homer_conversion.sh
+!cutrun_all.sh
+!cutrun_analysis.R
+!MultiomeAnalysis.Rproj
 
-# Exclude utility/sync scripts (not analysis code)
+# Explicitly exclude redundant scripts (superseded by combined/refined versions)
+HNF1B_coregulon.R
+WT1_coregulon.R
+SOX17_coregulon.R
+MECOM_coregulon.R
+JP_Analysis.R
+Subset_analysis.R
+UMAP annotation.R
+UMAP by timepoint.R
+
+# Exclude utility/sync scripts
 sync_to_rfs.sh
 sync_element_to_rfs.sh
 sync_log.txt
